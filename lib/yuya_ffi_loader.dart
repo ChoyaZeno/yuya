@@ -7,37 +7,8 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
-
-/// Widget data to send to AOT engine
-class WidgetData {
-  final String type;
-  final int index;
-  final String? labelText;
-  final String? hintText;
-  final String? helperText;
-  final bool? hasValue;
-
-  const WidgetData({
-    required this.type,
-    required this.index,
-    this.labelText,
-    this.hintText,
-    this.helperText,
-    this.hasValue,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'type': type,
-        'index': index,
-        'labelText': labelText,
-        'hintText': hintText,
-        'helperText': helperText,
-        'hasValue': hasValue,
-      };
-}
+import 'core/yuya_data_structures.dart' show WidgetData;
 
 /// Validation result from AOT engine
 class FormLabelsResult {
@@ -100,36 +71,37 @@ class YuyaFFILoader {
       throw Exception('AOT binary not initialized. Call initialize() first.');
     }
 
-    // Prepare input JSON
-    final inputData = {
-      'function': 'validateFormLabels',
-      'widgets': widgetData.map((w) => w.toJson()).toList(),
-    };
-    final inputJson = jsonEncode(inputData);
-
-    // Create temporary file for input
     final tempDir = Directory.systemTemp.createTempSync('yuya_');
     final inputFile = File(path.join(tempDir.path, 'input.json'));
-    inputFile.writeAsStringSync(inputJson);
+    final outputFile = File(path.join(tempDir.path, 'output.json'));
 
     try {
-      // Execute the binary synchronously
+      // Write input data
+      final inputData = {
+        'function': 'validateFormLabels',
+        'widgets': widgetData.map((w) => w.toJson()).toList(),
+      };
+      inputFile.writeAsStringSync(jsonEncode(inputData));
+
+      // Execute binary synchronously
       final result = Process.runSync(
         _executablePath!,
-        [inputFile.path],
+        [inputFile.path, outputFile.path],
       );
 
       if (result.exitCode != 0) {
         throw Exception(
-          'AOT execution failed:\n'
-          'Exit code: ${result.exitCode}\n'
-          'Stderr: ${result.stderr}\n'
-          'Stdout: ${result.stdout}',
+          'AOT binary failed with exit code ${result.exitCode}\n'
+          'stderr: ${result.stderr}',
         );
       }
 
-      // Parse output JSON
-      final outputJson = jsonDecode(result.stdout as String) as Map<String, dynamic>;
+      // Read output
+      if (!outputFile.existsSync()) {
+        throw Exception('AOT binary did not produce output file');
+      }
+
+      final outputJson = jsonDecode(outputFile.readAsStringSync());
       return FormLabelsResult.fromJson(outputJson);
     } finally {
       // Cleanup
@@ -142,48 +114,7 @@ class YuyaFFILoader {
   }
 
   /// Check form labels for WCAG compliance
-  Future<FormLabelsResult> checkFormLabels(WidgetTester tester) async {
-    final widgetDataList = <WidgetData>[];
-    int textFieldIndex = 0;
-    int dropdownIndex = 0;
-
-    // Extract TextField data
-    final textFields = find.byType(TextField);
-    for (final textField in textFields.evaluate()) {
-      final textFieldWidget = textField.widget as TextField;
-      final decoration = textFieldWidget.decoration;
-
-      widgetDataList.add(WidgetData(
-        type: 'TextField',
-        index: textFieldIndex++,
-        labelText: decoration?.labelText,
-        hintText: decoration?.hintText,
-        helperText: decoration?.helperText,
-      ));
-    }
-
-    // Extract DropdownButton data
-    final dropdowns = find.byType(DropdownButton);
-    for (final dropdown in dropdowns.evaluate()) {
-      final dropdownWidget = dropdown.widget as DropdownButton;
-
-      String? hintText;
-      if (dropdownWidget.hint is Text) {
-        hintText = (dropdownWidget.hint as Text).data ??
-            (dropdownWidget.hint as Text).textSpan?.toPlainText();
-      }
-
-      widgetDataList.add(WidgetData(
-        type: 'DropdownButton',
-        index: dropdownIndex++,
-        hintText: hintText,
-        hasValue: dropdownWidget.value != null,
-      ));
-    }
-
-    // Execute AOT binary for validation
-    // NO source code dependency - only compiled binary
-    // Using sync execution to avoid async issues in flutter test environment
-    return _executeAOTSync(widgetDataList);
+  FormLabelsResult checkFormLabels(List<WidgetData> widgetData) {
+    return _executeAOTSync(widgetData);
   }
 }
