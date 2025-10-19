@@ -1,20 +1,17 @@
-/// Yuya FFI Loader - Loads AOT-compiled validation engine
-/// This provides secure, compiled access to the WCAG validation algorithms
+/// Yuya FFI Loader - AOT Binary Executor
+/// 
+/// This executes the compiled AOT binary to perform WCAG validation.
+/// NO source code from yuya-core is used - only the compiled binary.
 
 library;
 
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 
-// Development fallback - only used when AOT is not available
-// In production, remove this dependency and distribute AOT binary only
-import 'package:yuya_core/yuya_core.dart' as core;
-
-/// Widget data to send to AOT engine (mirrored from yuya-core)
+/// Widget data to send to AOT engine
 class WidgetData {
   final String type;
   final int index;
@@ -42,7 +39,7 @@ class WidgetData {
       };
 }
 
-/// Validation result from AOT engine (mirrored from yuya-core)
+/// Validation result from AOT engine
 class FormLabelsResult {
   final bool passed;
   final List<String> issues;
@@ -59,45 +56,93 @@ class FormLabelsResult {
   factory FormLabelsResult.fromJson(Map<String, dynamic> json) =>
       FormLabelsResult(
         passed: json['passed'] as bool,
-        issues: List<String>.from(json['issues'] as List),
+        issues: (json['issues'] as List<dynamic>).cast<String>(),
         totalElements: json['totalElements'] as int,
-        errorMessage: json['errorMessage'] as String,
+        errorMessage: json['errorMessage'] as String? ?? '',
       );
 }
 
-/// YuyaPlugin class - provides access to AOT-compiled WCAG validation
-class YuyaPlugin {
-  String? _aotPath;
-  bool _useAOT = false;
-  static const String _defaultAOTPath = 'assets/yuya_plugin.aot';
+/// Main class for WCAG form validation using AOT binary
+class YuyaFFILoader {
+  String? _executablePath;
+  static const String _defaultExeName = 'yuya_plugin';
 
-  /// Initialize with path to AOT snapshot
-  /// Falls back to bundled asset if not specified
-  Future<void> initialize([String? aotPath]) async {
-    // Try specified path, then default asset path
+  /// Initialize the loader and locate the AOT executable
+  Future<void> initialize() async {
     final pathsToTry = [
-      if (aotPath != null) aotPath,
-      _defaultAOTPath,
-      path.join(Directory.current.path, _defaultAOTPath),
+      'assets/$_defaultExeName',
+      path.join(Directory.current.path, 'assets', _defaultExeName),
+      _defaultExeName, // In PATH
     ];
 
     for (final testPath in pathsToTry) {
-      final file = File(testPath);
-      if (await file.exists()) {
-        _aotPath = testPath;
-        _useAOT = true;
-        print('✅ Yuya initialized with protected AOT engine at: $testPath');
-        return;
+      try {
+        final file = File(testPath);
+        if (file.existsSync()) {
+          _executablePath = file.absolute.path;
+          return;
+        }
+      } catch (e) {
+        // Continue to next path
       }
     }
 
-    print('⚠️  AOT snapshot not found, functionality may be limited');
-    print('   Searched paths: ${pathsToTry.join(', ')}');
-    _useAOT = false;
+    throw Exception(
+      '❌ AOT executable not found!\n'
+      'Searched paths: ${pathsToTry.join(', ')}\n'
+      'Please ensure yuya_plugin executable is in the assets directory.',
+    );
   }
 
-  /// Extract widget data from WidgetTester
-  List<WidgetData> _extractWidgetData(WidgetTester tester) {
+  /// Execute the AOT binary with widget data (synchronous)
+  FormLabelsResult _executeAOTSync(List<WidgetData> widgetData) {
+    if (_executablePath == null) {
+      throw Exception('AOT binary not initialized. Call initialize() first.');
+    }
+
+    // Prepare input JSON
+    final inputData = {
+      'function': 'validateFormLabels',
+      'widgets': widgetData.map((w) => w.toJson()).toList(),
+    };
+    final inputJson = jsonEncode(inputData);
+
+    // Create temporary file for input
+    final tempDir = Directory.systemTemp.createTempSync('yuya_');
+    final inputFile = File(path.join(tempDir.path, 'input.json'));
+    inputFile.writeAsStringSync(inputJson);
+
+    try {
+      // Execute the binary synchronously
+      final result = Process.runSync(
+        _executablePath!,
+        [inputFile.path],
+      );
+
+      if (result.exitCode != 0) {
+        throw Exception(
+          'AOT execution failed:\n'
+          'Exit code: ${result.exitCode}\n'
+          'Stderr: ${result.stderr}\n'
+          'Stdout: ${result.stdout}',
+        );
+      }
+
+      // Parse output JSON
+      final outputJson = jsonDecode(result.stdout as String) as Map<String, dynamic>;
+      return FormLabelsResult.fromJson(outputJson);
+    } finally {
+      // Cleanup
+      try {
+        tempDir.deleteSync(recursive: true);
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+    }
+  }
+
+  /// Check form labels for WCAG compliance
+  Future<FormLabelsResult> checkFormLabels(WidgetTester tester) async {
     final widgetDataList = <WidgetData>[];
     int textFieldIndex = 0;
     int dropdownIndex = 0;
@@ -136,99 +181,9 @@ class YuyaPlugin {
       ));
     }
 
-    return widgetDataList;
-  }
-
-  /// Call the AOT engine via isolate
-  /// This is where the PROTECTED validation happens
-  Future<FormLabelsResult> _callAOTEngine(List<WidgetData> widgetData) async {
-    if (!_useAOT || _aotPath == null) {
-      // Fallback: Use development mode with direct import
-      // NOTE: In production, remove yuya-core dependency for full protection
-      print('ℹ️  Using development fallback (yuya-core package)');
-      print('   For production: distribute AOT binary only');
-      
-      final result = core.YuyaAOTEngine.validateFormLabels(
-        widgetData.map((w) => core.WidgetData(
-          type: w.type,
-          index: w.index,
-          labelText: w.labelText,
-          hintText: w.hintText,
-          helperText: w.helperText,
-          hasValue: w.hasValue,
-        )).toList(),
-      );
-      return FormLabelsResult.fromJson(result.toJson());
-    }
-
-    // Production mode: Use AOT snapshot via isolate
-    // This keeps the validation algorithms PROTECTED in compiled binary
-    print('🔒 Using PROTECTED AOT engine: $_aotPath');
-    
-    final receivePort = ReceivePort();
-    
-    try {
-      // Serialize widget data to JSON for sending to isolate
-      final widgetDataJson = widgetData.map((w) => w.toJson()).toList();
-      
-      // Spawn isolate from AOT snapshot
-      // NOTE: This requires the Dart VM to be available
-      // The validation algorithm source code is NOT accessible
-      await Isolate.spawnUri(
-        Uri.file(_aotPath!),
-        ['validateFormLabels'],
-        {
-          'port': receivePort.sendPort,
-          'data': widgetDataJson,
-        },
-      );
-
-      // Wait for response from isolate
-      final response = await receivePort.first as Map<String, dynamic>;
-      
-      return FormLabelsResult.fromJson(response);
-    } catch (e) {
-      // If isolate spawning fails, try development fallback
-      print('⚠️  Failed to use AOT isolate: $e');
-      print('   Falling back to development mode...');
-      
-      final result = core.YuyaAOTEngine.validateFormLabels(
-        widgetData.map((w) => core.WidgetData(
-          type: w.type,
-          index: w.index,
-          labelText: w.labelText,
-          hintText: w.hintText,
-          helperText: w.helperText,
-          hasValue: w.hasValue,
-        )).toList(),
-      );
-      return FormLabelsResult.fromJson(result.toJson());
-    } finally {
-      receivePort.close();
-    }
-  }
-
-  /// Test form labels using the PROTECTED AOT validation engine
-  /// 
-  /// Architecture:
-  /// 1. Extract widget data (public repo - this file)
-  /// 2. Send to AOT engine via isolate (PROTECTED - compiled binary)
-  /// 3. Receive validation results
-  /// 4. Throw if issues found
-  /// 
-  /// The validation algorithms are in the compiled .aot file,
-  /// not accessible in source form.
-  Future<void> checkFormLabels(WidgetTester tester) async {
-    // Extract widget data (public code - data extraction only)
-    final widgetData = _extractWidgetData(tester);
-
-    // Call the PROTECTED validation engine
-    // This executes the compiled AOT binary
-    final result = await _callAOTEngine(widgetData);
-
-    // Throw if validation failed
-    if (!result.passed) {
-      fail(result.errorMessage);
-    }
+    // Execute AOT binary for validation
+    // NO source code dependency - only compiled binary
+    // Using sync execution to avoid async issues in flutter test environment
+    return _executeAOTSync(widgetDataList);
   }
 }

@@ -4,23 +4,20 @@ import 'package:yuya/yuya.dart';
 
 void main() {
   testWidgets('checkFormLabels validates form labels', (WidgetTester tester) async {
-    // Create the Yuya plugin instance
-    final yuya = YuyaPlugin();
+    final yuya = YuyaFFILoader();
+    await yuya.initialize();
 
-    // Build a test widget with form fields
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: Column(
             children: [
-              // TextField with proper label
               TextField(
                 decoration: InputDecoration(
                   labelText: 'Email Address',
                   hintText: 'Enter your email',
                 ),
               ),
-              // TextField without label (should fail)
               TextField(
                 decoration: InputDecoration(),
               ),
@@ -30,18 +27,18 @@ void main() {
       ),
     );
 
-    // Run the form labels check - this should fail due to unlabeled field
-    expect(
-      () async => await yuya.checkFormLabels(tester),
-      throwsA(isA<TestFailure>()),
-    );
+    final result = await yuya.checkFormLabels(tester);
+    
+    expect(result.passed, isFalse);
+    expect(result.errorMessage, contains('WCAG 3.3.2'));
+    expect(result.errorMessage, contains('TextField #'));
   });
 
   testWidgets('checkFormLabels passes with properly labeled forms',
       (WidgetTester tester) async {
-    final yuya = YuyaPlugin();
+    final yuya = YuyaFFILoader();
+    await yuya.initialize();
 
-    // Build a test widget with properly labeled form fields
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -66,7 +63,7 @@ void main() {
       ),
     );
 
-    // This should pass without issues
-    await yuya.checkFormLabels(tester);
+    final result = await yuya.checkFormLabels(tester);
+    expect(result.passed, isTrue);
   });
 }
