@@ -11,14 +11,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  ffi: ^2.1.0
+  yuya_core:
+    path: ../yuya-core
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
-
-flutter:
-  # Include the AOT compiled snapshot as an asset
-  assets:
-    - assets/yuya_plugin.aot
