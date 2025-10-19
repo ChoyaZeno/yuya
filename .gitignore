@@ -1,0 +1,21 @@
+# Dart/Flutter
+.dart_tool/
+.packages
+pubspec.lock
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Note: Assets are committed (contains AOT snapshot)
+# !assets/
