@@ -5,7 +5,6 @@ import 'package:yuya/yuya.dart';
 void main() {
   testWidgets('checkFormLabels validates form labels', (WidgetTester tester) async {
     final yuya = YuyaFFILoader();
-    await yuya.initialize();
 
     await tester.pumpWidget(
       MaterialApp(
@@ -38,7 +37,6 @@ void main() {
   testWidgets('checkFormLabels passes with properly labeled forms',
       (WidgetTester tester) async {
     final yuya = YuyaFFILoader();
-    await yuya.initialize();
 
     await tester.pumpWidget(
       MaterialApp(

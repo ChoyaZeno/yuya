@@ -8,6 +8,7 @@ library;
 import 'package:flutter_test/flutter_test.dart';
 import 'yuya.dart';
 
+import 'yuya_data_structures.dart';
 /// Yuya test helpers for WCAG validation
 /// 
 /// Example usage:
@@ -51,7 +52,6 @@ class Yuya {
   /// ```
   static Future<void> testFormLabels(WidgetTester tester) async {
     final yuya = YuyaFFILoader();
-    await yuya.initialize();
     
     // Pass find directly - extraction happens internally
     final result = yuya.checkFormLabels(find);
@@ -75,7 +75,6 @@ class Yuya {
   /// ```
   static Future<FormLabelsResult> checkFormLabels(WidgetTester tester) async {
     final yuya = YuyaFFILoader();
-    await yuya.initialize();
     
     return yuya.checkFormLabels(find);
   }
