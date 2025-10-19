@@ -7,8 +7,10 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
-import 'core/yuya_data_structures.dart' show WidgetData;
+import 'yuya_data_structures.dart';
 
 /// Validation result from AOT engine
 class FormLabelsResult {
@@ -65,6 +67,52 @@ class YuyaFFILoader {
     );
   }
 
+  /// Extract widget data from find API
+  List<WidgetData> _extractWidgets(CommonFinders find) {
+    final widgetDataList = <WidgetData>[];
+    int textFieldIndex = 0;
+    int dropdownIndex = 0;
+
+    // Extract TextField data
+    final textFields = find.byType(TextField);
+    for (final element in textFields.evaluate()) {
+      final widget = element.widget;
+      if (widget is TextField) {
+        final decoration = widget.decoration;
+
+        widgetDataList.add(WidgetData(
+          type: 'TextField',
+          index: textFieldIndex++,
+          labelText: decoration?.labelText,
+          hintText: decoration?.hintText,
+          helperText: decoration?.helperText,
+        ));
+      }
+    }
+
+    // Extract DropdownButton data
+    final dropdowns = find.byType(DropdownButton);
+    for (final element in dropdowns.evaluate()) {
+      final widget = element.widget;
+      if (widget is DropdownButton) {
+        String? hintText;
+        if (widget.hint is Text) {
+          hintText = (widget.hint as Text).data ??
+              (widget.hint as Text).textSpan?.toPlainText();
+        }
+
+        widgetDataList.add(WidgetData(
+          type: 'DropdownButton',
+          index: dropdownIndex++,
+          hintText: hintText,
+          hasValue: widget.value != null,
+        ));
+      }
+    }
+
+    return widgetDataList;
+  }
+
   /// Execute the AOT binary with widget data (synchronous)
   FormLabelsResult _executeAOTSync(List<WidgetData> widgetData) {
     if (_executablePath == null) {
@@ -114,7 +162,10 @@ class YuyaFFILoader {
   }
 
   /// Check form labels for WCAG compliance
-  FormLabelsResult checkFormLabels(List<WidgetData> widgetData) {
+  /// 
+  /// Accepts flutter_test's find API directly.
+  FormLabelsResult checkFormLabels(CommonFinders find) {
+    final widgetData = _extractWidgets(find);
     return _executeAOTSync(widgetData);
   }
 }

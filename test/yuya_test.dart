@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yuya/yuya.dart';
-import 'package:yuya/yuya_finder_adapter.dart';
 
 void main() {
   testWidgets('checkFormLabels validates form labels', (WidgetTester tester) async {
@@ -28,10 +27,8 @@ void main() {
       ),
     );
 
-    // Use copied core validation logic with the adapter
-    final finder = FlutterTestFinderAdapter(find);
-    final widgetData = YuyaWidgetValidator.extractWidgets(finder);
-    final result = yuya.checkFormLabels(widgetData);
+    // Pass find directly - extraction happens internally!
+    final result = yuya.checkFormLabels(find);
     
     expect(result.passed, isFalse);
     expect(result.errorMessage, contains('WCAG 3.3.2'));
@@ -67,10 +64,8 @@ void main() {
       ),
     );
 
-    // Use copied core validation logic with the adapter
-    final finder = FlutterTestFinderAdapter(find);
-    final widgetData = YuyaWidgetValidator.extractWidgets(finder);
-    final result = yuya.checkFormLabels(widgetData);
+    // Pass find directly - extraction happens internally!
+    final result = yuya.checkFormLabels(find);
     expect(result.passed, isTrue);
   });
 }

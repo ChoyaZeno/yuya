@@ -1,22 +1,12 @@
-/// Yuya Data Structures
-/// 
-/// This file contains ONLY the data structures needed for communication
-/// between the public package and the AOT binary.
-/// 
-/// NO BUSINESS LOGIC - all validation algorithms are in the compiled AOT binary.
-
-library;
-
-/// Widget data passed to the AOT validation engine
-/// 
-/// This is a simple data transfer object (DTO) with no logic.
+/// Data structure for widget information extracted from Flutter tests
+/// This is the only data structure shared between the public and private repos
 class WidgetData {
-  final String type; // 'TextField' or 'DropdownButton'
+  final String type;
   final int index;
   final String? labelText;
   final String? hintText;
   final String? helperText;
-  final bool? hasValue; // For dropdowns
+  final bool? hasValue;
   
   const WidgetData({
     required this.type,
@@ -27,7 +17,6 @@ class WidgetData {
     this.hasValue,
   });
   
-  /// Serialize to JSON for sending to AOT binary
   Map<String, dynamic> toJson() => {
     'type': type,
     'index': index,
@@ -37,7 +26,6 @@ class WidgetData {
     'hasValue': hasValue,
   };
   
-  /// Deserialize from JSON (if needed)
   factory WidgetData.fromJson(Map<String, dynamic> json) => WidgetData(
     type: json['type'] as String,
     index: json['index'] as int,
