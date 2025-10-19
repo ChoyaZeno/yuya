@@ -23,8 +23,11 @@ class YuyaFFILoader {
       return find.byType(TextField).evaluate().map((e) => e.widget as TextField);
     }
 
-    Iterable<DropdownButton> findDropdowns() {
-      return find.byType(DropdownButton).evaluate().map((e) => e.widget as DropdownButton);
+    Iterable<Widget> findDropdowns() {
+      // Use predicate to match any DropdownButton<T> regardless of generic type
+      return find.byWidgetPredicate((widget) => 
+        widget.runtimeType.toString().startsWith('DropdownButton')
+      ).evaluate().map((e) => e.widget);
     }
 
     // Bridge does ALL the validation directly!

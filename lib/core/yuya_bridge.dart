@@ -14,9 +14,8 @@ import '../yuya_data_structures.dart';
 /// Callback: Find all widgets of a specific type
 typedef FindWidgetsByType<T> = Iterable<T> Function();
 
-/// Callback: Check if widget has accessible label
-/// Returns true if widget has labelText, hintText, or helperText
-typedef HasAccessibleLabel = bool Function(dynamic widget);
+/// Callback: Find widgets by predicate (for generic types like DropdownButton<T>)
+typedef FindWidgetsByPredicate = Iterable<Widget> Function();
 
 class YuyaBridge {
   /// Validate form labels directly - NO WidgetData serialization!
@@ -25,7 +24,7 @@ class YuyaBridge {
   /// The validation logic calls back to check properties in real-time.
   static FormLabelsResult validateFormLabels({
     required FindWidgetsByType<TextField> findTextFields,
-    required FindWidgetsByType<DropdownButton> findDropdowns,
+    required FindWidgetsByPredicate findDropdowns, // Use predicate for generic types
   }) {
     final issues = <String>[];
     int totalElements = 0;
@@ -48,16 +47,20 @@ class YuyaBridge {
       textFieldIndex++;
     }
 
-    // Validate DropdownButtons directly
+    // Validate DropdownButtons directly (handles any generic type)
     final dropdowns = findDropdowns();
     int dropdownIndex = 0;
     for (final widget in dropdowns) {
       totalElements++;
       
-      // Check if DropdownButton has hint or value
-      final hasLabel = widget.hint != null || widget.value != null;
+      // Cast to dynamic to access properties
+      final dropdown = widget as dynamic;
       
-      if (!hasLabel) {
+      // Check if DropdownButton has hint or value
+      final hasHint = dropdown.hint != null;
+      final hasValue = dropdown.value != null;
+      
+      if (!hasHint && !hasValue) {
         issues.add('DropdownButton #$dropdownIndex - Missing hint or value');
       }
       dropdownIndex++;
