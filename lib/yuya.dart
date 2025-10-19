@@ -26,6 +26,6 @@ export 'core/yuya_widget_validator.dart'
 export 'core/yuya_data_structures.dart' 
     show WidgetData;
 
-// Deprecated: Old widget extractor (for backward compatibility)
-// Use YuyaWidgetValidator.extractWidgets(FlutterTestFinderAdapter(find)) instead
-export 'yuya_widget_extractor.dart';
+// Test helpers - Clean API for flutter_test
+// Provides simple, direct test methods like Yuya.testFormLabels(tester)
+export 'yuya_test_helpers.dart' show Yuya;
