@@ -1,16 +1,16 @@
 /// Yuya - WCAG Form Validation Package
 /// 
-/// Public API for WCAG accessibility validation using AOT-compiled engine.
+/// Public API for WCAG accessibility validation using gRPC service.
 /// 
-/// Self-contained package with no external dependencies.
+/// Self-contained package with strongly-typed gRPC communication.
 
-library yuya;
+library;
 
-// Core FFI loader - Executes AOT binary for WCAG validation
-export 'yuya_ffi_loader.dart' show YuyaFFILoader, FormLabelsResult;
+// Core gRPC client - Communicates with AOT validation service
+export 'yuya_grpc_client.dart' show YuyaGrpcClient;
 
-// Data structures - Simple DTOs
-export 'yuya_data_structures.dart' show WidgetData;
+// Data structures - Result types
+export 'yuya_data_structures.dart' show FormLabelsResult;
 
 // Test helpers - Clean API for flutter_test
 // Provides simple test methods like Yuya.testFormLabels(tester)

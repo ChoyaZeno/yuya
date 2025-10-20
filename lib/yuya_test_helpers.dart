@@ -6,9 +6,8 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'yuya.dart';
+import 'yuya_grpc_client.dart';
 
-import 'yuya_data_structures.dart';
 /// Yuya test helpers for WCAG validation
 /// 
 /// Example usage:
@@ -21,61 +20,69 @@ import 'yuya_data_structures.dart';
 /// });
 /// ```
 class Yuya {
+  static YuyaGrpcClient? _client;
+  static bool _initialized = false;
+
+  /// Initialize the Yuya validation service (call once per test suite)
+  static Future<void> initialize() async {
+    if (_initialized) return;
+    _client = YuyaGrpcClient();
+    await _client!.initialize();
+    _initialized = true;
+  }
+
+  /// Shutdown the Yuya validation service (call in tearDownAll)
+  static Future<void> shutdown() async {
+    if (_client != null) {
+      await _client!.shutdown();
+      _client = null;
+      _initialized = false;
+    }
+  }
+
   /// Test for WCAG 3.3.2 - Labels or Instructions
   /// 
   /// Validates that all form inputs have proper accessible labels.
-  /// Throws a test failure with detailed error messages if issues are found.
+  /// Uses advanced validation with proprietary algorithms from yuya-core.
   /// 
-  /// Example:
+  /// ⚠️ Requires tester.runAsync() to work with gRPC:
   /// ```dart
   /// testWidgets('validates form labels', (WidgetTester tester) async {
-  ///   await tester.pumpWidget(
-  ///     MaterialApp(
-  ///       home: Scaffold(
-  ///         body: Column(
-  ///           children: [
-  ///             TextField(
-  ///               decoration: InputDecoration(
-  ///                 labelText: 'Email',
-  ///                 hintText: 'Enter your email',
-  ///               ),
-  ///             ),
-  ///           ],
-  ///         ),
-  ///       ),
-  ///     ),
-  ///   );
+  ///   await tester.pumpWidget(MyApp());
   ///   
-  ///   // This will pass - TextField has proper labels
-  ///   await Yuya.testFormLabels(tester);
+  ///   await tester.runAsync(() async {
+  ///     await Yuya.testFormLabels(tester);
+  ///   });
   /// });
   /// ```
-  static Future<void> testFormLabels(WidgetTester tester) async {
-    final yuya = YuyaFFILoader();
-    
-    // Pass find directly - extraction happens internally
-    final result = yuya.checkFormLabels(find);
-    
-    if (!result.passed) {
-      fail(result.errorMessage);
-    }
-  }
-  
-  /// Check form labels without throwing
   /// 
-  /// Returns the validation result instead of throwing.
-  /// Useful when you want to handle the result yourself.
-  /// 
-  /// Example:
+  /// Or initialize a client manually for more control:
   /// ```dart
-  /// final result = await Yuya.checkFormLabels(tester);
-  /// if (!result.passed) {
-  ///   print('Issues found: ${result.issues}');
-  /// }
+  /// final client = YuyaGrpcClient();
+  /// await client.initialize();
+  /// await tester.runAsync(() async {
+  ///   final result = await client.checkFormLabels(find);
+  ///   expect(result.passed, isTrue);
+  /// });
+  /// await client.shutdown();
   /// ```
-  static Future<FormLabelsResult> checkFormLabels(WidgetTester tester) async {
-    final yuya = YuyaFFILoader();
-    
-    return yuya.checkFormLabels(find);
+  static Future<void> testFormLabels(WidgetTester tester) async {
+    if (!_initialized || _client == null) {
+      throw Exception(
+        'Yuya not initialized. Call Yuya.initialize() in setUpAll() first.'
+      );
+    }
+
+    // Use advanced validation with gRPC
+    final result = await _client!.checkFormLabels(find);
+
+    // Fail test if validation failed
+    if (!result.passed) {
+      fail(
+        'WCAG 3.3.2 Form Labels validation failed:\n'
+        'Total elements checked: ${result.totalElements}\n'
+        'Issues found:\n${result.issues.map((i) => '  - $i').join('\n')}',
+      );
+    }
   }
 }

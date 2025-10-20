@@ -1,0 +1,297 @@
+/// Yuya gRPC Client
+/// 
+/// Connects to the gRPC validation service with strong typing.
+/// Works in all environments including Flutter tests.
+/// 
+/// Benefits of gRPC:
+/// - Strong typing via Protocol Buffers
+/// - Efficient binary serialization
+/// - Works in test environments (no HTTP restrictions)
+/// - Can keep connection alive for multiple requests
+/// - IP protection: validation logic stays in binary
+
+library;
+
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:grpc/grpc.dart';
+import 'generated/validation.pbgrpc.dart' as pb;
+import 'yuya_data_structures.dart' hide WidgetData;
+
+const int kGrpcPort = 50051;
+const String kGrpcHost = 'localhost';
+
+class YuyaGrpcClient {
+  String? _executablePath;
+  Process? _serviceProcess;
+  ClientChannel? _channel;
+  pb.ValidationServiceClient? _client;
+  bool _ownsProcess = false;
+
+  /// Initialize and find the validation service binary
+  Future<void> initialize() async {
+    // Find AOT binary
+    final possiblePaths = [
+      '/Users/damienrietdijk/Git/yuya/assets/yuya_grpc_service',
+      'assets/yuya_grpc_service',
+      '../yuya-core/build/aot/yuya_grpc_service',
+    ];
+
+    for (final p in possiblePaths) {
+      final file = File(p);
+      if (await file.exists()) {
+        _executablePath = file.absolute.path;
+        break;
+      }
+    }
+
+    if (_executablePath == null) {
+      throw Exception('gRPC service binary not found in: $possiblePaths');
+    }
+
+    // Start service and connect
+    await _ensureServiceRunning();
+  }
+
+  /// Ensure the gRPC service is running and connected
+  Future<void> _ensureServiceRunning() async {
+    // Try to connect to existing service
+    if (await _tryConnect()) {
+      _ownsProcess = false; // Using existing service
+      return;
+    }
+
+    // Start service
+    _serviceProcess = await Process.start(
+      _executablePath!,
+      [],
+      mode: ProcessStartMode.normal, // Normal mode so we can control it
+    );
+    _ownsProcess = true;
+
+    // Consume stderr to prevent buffer issues
+    _serviceProcess!.stdout.listen((_) {});
+    _serviceProcess!.stderr.listen((_) {});
+
+    // Wait for service to be ready
+    for (int i = 0; i < 50; i++) {
+      await Future.delayed(Duration(milliseconds: 100));
+      if (await _tryConnect()) {
+        return;
+      }
+    }
+
+    throw Exception('Failed to connect to gRPC service within 5 seconds');
+  }
+
+  /// Try to connect to the gRPC service
+  Future<bool> _tryConnect() async {
+    try {
+      if (_channel == null) {
+        _channel = ClientChannel(
+          kGrpcHost,
+          port: kGrpcPort,
+          options: ChannelOptions(
+            credentials: ChannelCredentials.insecure(),
+          ),
+        );
+        _client = pb.ValidationServiceClient(_channel!);
+      }
+
+      // Test connection with health check
+      final response = await _client!.healthCheck(
+        pb.HealthCheckRequest(),
+        options: CallOptions(timeout: Duration(milliseconds: 500)),
+      );
+      
+      return response.status == 'healthy';
+    } catch (_) {
+      _channel = null;
+      _client = null;
+      return false;
+    }
+  }
+
+  /// Validate form labels using gRPC with strong typing
+  /// Check form labels for WCAG compliance
+  /// 
+  /// For testing: Uses basic WCAG checks (testWidgets compatible)
+  /// For production: Can use gRPC service with advanced algorithms
+  Future<FormLabelsResult> checkFormLabels(CommonFinders find) async {
+    // Extract widget data
+    final textFields = _extractTextFields(find);
+    final dropdowns = _extractDropdowns(find);
+
+    // Use basic WCAG validation (public standards)
+    // For advanced validation, use gRPC service in production
+    return _basicWcagValidation(textFields, dropdowns);
+  }
+
+  /// Basic WCAG 3.3.2 validation (public standard)
+  /// 
+  /// This implements the MINIMUM requirements from WCAG specs.
+  /// Advanced validation (quality, context, scoring) is in yuya-core service.
+  FormLabelsResult _basicWcagValidation(
+    List<pb.WidgetData> textFields,
+    List<pb.WidgetData> dropdowns,
+  ) {
+    final issues = <String>[];
+    int totalElements = 0;
+
+    // WCAG 3.3.2: Text inputs must have accessible labels
+    int textFieldIndex = 0;
+    for (final widget in textFields) {
+      totalElements++;
+      
+      final labelText = widget.properties['labelText'];
+      final hintText = widget.properties['hintText'];
+      
+      // Basic check: does ANY label exist? (WCAG minimum)
+      final hasLabel = (labelText != null && labelText.isNotEmpty) ||
+          (hintText != null && hintText.isNotEmpty);
+
+      if (!hasLabel) {
+        issues.add('TextField #$textFieldIndex - Missing accessible label (labelText or hintText)');
+      }
+      textFieldIndex++;
+    }
+
+    // WCAG 3.3.2: Dropdowns must have accessible labels
+    int dropdownIndex = 0;
+    for (final widget in dropdowns) {
+      totalElements++;
+      
+      final hint = widget.properties['hint'];
+      final labelText = widget.properties['labelText'];
+
+      // Basic check: does ANY label exist? (WCAG minimum)
+      final hasLabel = (hint != null && hint.isNotEmpty) ||
+          (labelText != null && labelText.isNotEmpty);
+
+      if (!hasLabel) {
+        issues.add('Dropdown #$dropdownIndex - Missing accessible hint or label');
+      }
+      dropdownIndex++;
+    }
+
+    return FormLabelsResult(
+      passed: issues.isEmpty,
+      totalElements: totalElements,
+      issues: issues,
+    );
+  }
+
+  /// Advanced validation using gRPC service (proprietary algorithms)
+  /// 
+  /// This uses the yuya-core service which contains:
+  /// - Label quality scoring
+  /// - Context-aware validation  
+  /// - Length and meaningfulness checks
+  /// - Advanced heuristics
+  /// - Detailed recommendations
+  Future<FormLabelsResult> checkFormLabelsAdvanced(CommonFinders find) async {
+    if (_client == null) {
+      throw Exception('Not initialized. Call initialize() first.');
+    }
+
+    // Extract widget data with strong types
+    final request = pb.ValidationRequest()
+      ..textFields.addAll(_extractTextFields(find))
+      ..dropdowns.addAll(_extractDropdowns(find));
+
+    // Send gRPC request to advanced validation service
+    try {
+      final response = await _client!.validateFormLabels(request);
+
+      return FormLabelsResult(
+        passed: response.passed,
+        totalElements: response.totalElements,
+        issues: response.issues.toList(),
+      );
+    } catch (e) {
+      throw Exception('gRPC call failed: $e');
+    }
+  }
+
+  /// Extract TextField widgets as strongly-typed WidgetData
+  List<pb.WidgetData> _extractTextFields(CommonFinders find) {
+    final widgets = find.byType(TextField).evaluate();
+    final result = <pb.WidgetData>[];
+
+    for (final element in widgets) {
+      final widget = element.widget as TextField;
+      final decoration = widget.decoration;
+
+      final widgetData = pb.WidgetData()
+        ..type = 'TextField';
+
+      if (decoration?.labelText != null) {
+        widgetData.properties['labelText'] = decoration!.labelText!;
+      }
+      if (decoration?.hintText != null) {
+        widgetData.properties['hintText'] = decoration!.hintText!;
+      }
+      if (widget.controller?.text != null) {
+        widgetData.properties['text'] = widget.controller!.text;
+      }
+
+      result.add(widgetData);
+    }
+
+    return result;
+  }
+
+  /// Extract Dropdown widgets as strongly-typed WidgetData
+  List<pb.WidgetData> _extractDropdowns(CommonFinders find) {
+    final widgets = find.byWidgetPredicate(
+      (widget) => widget.runtimeType.toString().startsWith('DropdownButton'),
+    ).evaluate();
+    
+    final result = <pb.WidgetData>[];
+
+    for (final element in widgets) {
+      final widget = element.widget as dynamic; // Cast to dynamic for property access
+      final widgetData = pb.WidgetData()
+        ..type = 'DropdownButton';
+
+      try {
+        // Try to access hint property directly (works because of dynamic)
+        final hint = widget.hint;
+        if (hint != null) {
+          widgetData.properties['hint'] = 'present';
+        }
+      } catch (e) {
+        // Hint property doesn't exist or couldn't be accessed
+      }
+
+      result.add(widgetData);
+    }
+
+    return result;
+  }
+
+  /// Shutdown the service and close connections
+  Future<void> shutdown() async {
+    // Close channel
+    await _channel?.shutdown();
+    _channel = null;
+    _client = null;
+    
+    // Kill process if we own it
+    if (_ownsProcess && _serviceProcess != null) {
+      _serviceProcess!.kill(ProcessSignal.sigterm);
+      
+      // Wait for process to exit (with timeout)
+      try {
+        await _serviceProcess!.exitCode.timeout(Duration(seconds: 2));
+      } catch (_) {
+        // Force kill if it doesn't exit gracefully
+        _serviceProcess!.kill(ProcessSignal.sigkill);
+      }
+      
+      _serviceProcess = null;
+      _ownsProcess = false;
+    }
+  }
+}
